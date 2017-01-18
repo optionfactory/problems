@@ -17,6 +17,7 @@ import java.util.stream.Stream;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 import javax.servlet.http.HttpServletResponseWrapper;
+import net.optionfactory.problems.web.ExceptionMapping.ExceptionMappings;
 import org.springframework.core.annotation.AnnotationUtils;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.converter.HttpMessageNotReadableException;
@@ -84,6 +85,21 @@ public class JsonExceptionResolver extends DefaultHandlerExceptionResolver {
             final Stream<Problem> fieldFailures = manve.getBindingResult().getFieldErrors().stream().map(JsonExceptionResolver::fieldErrorToProblem);
             final List<Problem> failures = Stream.concat(globalFailures, fieldFailures).collect(Collectors.toList());
             return new HttpStatusAndFailures(HttpStatus.BAD_REQUEST, failures);
+        }
+        if(hm.hasMethodAnnotation(ExceptionMappings.class)){
+            final ExceptionMappings ems = hm.getMethodAnnotation(ExceptionMappings.class);
+            for (ExceptionMapping em : ems.value()) {
+                if(em.exception().isAssignableFrom(ex.getClass())){
+                    if(ex instanceof Failure){
+                        final Failure failure = (Failure) ex;
+                        return new HttpStatusAndFailures(em.code(), failure.problems);                
+                    }
+                    return new HttpStatusAndFailures(em.code(), Collections.singletonList(
+                        Problem.of(em.type(), em.context(), ex.getMessage(), null)
+                    ));
+                }
+                
+            }
         }
         final ResponseStatus responseStatus = AnnotationUtils.findAnnotation(ex.getClass(), ResponseStatus.class);
         if (responseStatus != null) {
