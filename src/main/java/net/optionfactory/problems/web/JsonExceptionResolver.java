@@ -86,7 +86,7 @@ public class JsonExceptionResolver extends DefaultHandlerExceptionResolver {
             final List<Problem> failures = Stream.concat(globalFailures, fieldFailures).collect(Collectors.toList());
             return new HttpStatusAndFailures(HttpStatus.BAD_REQUEST, failures);
         }
-        if(hm.hasMethodAnnotation(ExceptionMappings.class)){
+        if(hm != null && hm.hasMethodAnnotation(ExceptionMappings.class)){
             final ExceptionMappings ems = hm.getMethodAnnotation(ExceptionMappings.class);
             for (ExceptionMapping em : ems.value()) {
                 if(em.exception().isAssignableFrom(ex.getClass())){
