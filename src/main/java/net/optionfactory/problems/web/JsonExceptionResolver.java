@@ -101,6 +101,18 @@ public class JsonExceptionResolver extends DefaultHandlerExceptionResolver {
                 
             }
         }
+        if(hm != null && hm.hasMethodAnnotation(ExceptionMapping.class)){
+            final ExceptionMapping em = hm.getMethodAnnotation(ExceptionMapping.class);
+            if(em.exception().isAssignableFrom(ex.getClass())){
+                if(ex instanceof Failure){
+                    final Failure failure = (Failure) ex;
+                    return new HttpStatusAndFailures(em.code(), failure.problems);                
+                }
+                return new HttpStatusAndFailures(em.code(), Collections.singletonList(
+                    Problem.of(em.type(), em.context(), ex.getMessage(), null)
+                ));
+            }
+        }
         final ResponseStatus responseStatus = AnnotationUtils.findAnnotation(ex.getClass(), ResponseStatus.class);
         if (responseStatus != null) {
             if (ex instanceof Failure) {
