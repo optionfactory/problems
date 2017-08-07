@@ -21,6 +21,7 @@ import net.optionfactory.problems.web.ExceptionMapping.ExceptionMappings;
 import org.springframework.core.annotation.AnnotationUtils;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.converter.HttpMessageNotReadableException;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.validation.BindException;
 import org.springframework.validation.FieldError;
 import org.springframework.validation.ObjectError;
@@ -127,6 +128,9 @@ public class JsonExceptionResolver extends DefaultHandlerExceptionResolver {
         if (ex instanceof Failure) {
             final Failure failure = (Failure) ex;
             return new HttpStatusAndFailures(HttpStatus.BAD_REQUEST, failure.problems);
+        }
+        if(ex instanceof AccessDeniedException){
+             return new HttpStatusAndFailures(HttpStatus.FORBIDDEN, Collections.singletonList(Problem.of("FORBIDDEN", null, ex.getMessage(), null)));
         }
         if (null != super.doResolveException(request, new SendErrorToSetStatusHttpServletResponse(response), hm, ex)) {
             if (request.getAttribute("javax.servlet.error.exception") != null) {
