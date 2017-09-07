@@ -2,6 +2,7 @@ package net.optionfactory.problems;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import org.springframework.util.Assert;
@@ -49,6 +50,13 @@ public class Result<V> {
         return value;
     }
 
+    public <R> Result<R> map(Function<V, R> mapper) {
+        if (isError) {
+            return Result.errors(errors);
+        }
+        return Result.value(mapper.apply(value));
+    }
+
     public <R> Result<R> mapErrors() {
         Assert.isTrue(isError, "cannot call mapErrors on a valued result");
         return Result.errors(errors);
@@ -59,4 +67,10 @@ public class Result<V> {
                 .flatMap(r -> r.getErrors().stream())
                 .collect(Collectors.toList());
     }
+
+    @Override
+    public String toString() {
+        return "Result{" + "errors=" + errors + ", value=" + value + ", isError=" + isError + '}';
+    }
+
 }
