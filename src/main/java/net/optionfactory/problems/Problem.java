@@ -19,6 +19,15 @@ public class Problem {
         return problem;
     }
 
+    public static Problem of(String type, String reason) {
+        final Problem problem = new Problem();
+        problem.type = type;
+        problem.context = NO_CONTEXT;
+        problem.reason = reason;
+        problem.details = NO_DETAILS;
+        return problem;
+    }
+
     @Override
     public String toString() {
         return String.format("%s@%s: %s (%s)", type, context, reason, details);
