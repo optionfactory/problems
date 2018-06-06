@@ -51,6 +51,7 @@ public class JsonExceptionResolver extends DefaultHandlerExceptionResolver {
     }
 
     protected HttpStatusAndFailures toStatusAndErrors(HttpServletRequest request, HttpServletResponse response, HandlerMethod hm, Exception ex) {
+        final String requestUri = request.getRequestURI();
         if (ex instanceof HttpMessageNotReadableException) {
             final Throwable cause = ex.getCause();
             if (cause instanceof UnrecognizedPropertyException) {
@@ -59,25 +60,33 @@ public class JsonExceptionResolver extends DefaultHandlerExceptionResolver {
                 metadata.put("known", inner.getKnownPropertyIds());
                 metadata.put("in", inner.getReferringClass().getSimpleName());
                 final Problem failure = Problem.of("UNRECOGNIZED_PROPERTY", inner.getPropertyName(), "unrecognized field", metadata);
+                logger.debug(String.format("Unrecognized property at %s: %s", requestUri, failure));
                 return new HttpStatusAndFailures(HttpStatus.BAD_REQUEST, Arrays.asList(failure));
             }
             if (cause instanceof InvalidFormatException) {
                 final InvalidFormatException inner = (InvalidFormatException) cause;
                 final String path = inner.getPath().stream().map(p -> p.getFieldName()).collect(Collectors.joining("."));
-                return new HttpStatusAndFailures(HttpStatus.BAD_REQUEST, Arrays.asList(Problem.of("INVALID_FORMAT", path, inner.getMessage(), null)));
+                final Problem failure = Problem.of("INVALID_FORMAT", path, inner.getMessage(), null);
+                logger.debug(String.format("Invalid format at %s: %s", requestUri, failure));
+                return new HttpStatusAndFailures(HttpStatus.BAD_REQUEST, Arrays.asList(failure));
             }
-            if (cause instanceof JsonMappingException){
-                final JsonMappingException inner = (JsonMappingException)cause;
+            if (cause instanceof JsonMappingException) {
+                final JsonMappingException inner = (JsonMappingException) cause;
                 final String path = inner.getPath().stream().map(p -> p.getFieldName()).collect(Collectors.joining("."));
-                return new HttpStatusAndFailures(HttpStatus.BAD_REQUEST, Arrays.asList(Problem.of("INVALID_FORMAT", path, inner.getMessage(), null)));                
+                final Problem failure = Problem.of("INVALID_FORMAT", path, inner.getMessage(), null);
+                logger.debug(String.format("Json mapping exception at %s: %s", requestUri, failure));
+                return new HttpStatusAndFailures(HttpStatus.BAD_REQUEST, Arrays.asList(failure));
             }
-            return new HttpStatusAndFailures(HttpStatus.BAD_REQUEST, Arrays.asList(Problem.of("MESSAGE_NOT_READABLE", null, cause != null ? cause.getMessage() : ex.getMessage(), cause)));
+            final Problem failure = Problem.of("MESSAGE_NOT_READABLE", null, cause != null ? cause.getMessage() : ex.getMessage(), cause);
+            logger.debug(String.format("Unreadable message at %s: %s", requestUri, failure));
+            return new HttpStatusAndFailures(HttpStatus.BAD_REQUEST, Arrays.asList(failure));
         }
         if (ex instanceof BindException) {
             final BindException be = (BindException) ex;
             final Stream<Problem> globalFailures = be.getGlobalErrors().stream().map(JsonExceptionResolver::objectErrorToProblem);
             final Stream<Problem> fieldFailures = be.getFieldErrors().stream().map(JsonExceptionResolver::fieldErrorToProblem);
             final List<Problem> failures = Stream.concat(globalFailures, fieldFailures).collect(Collectors.toList());
+            logger.debug(String.format("Binding failure at %s: %s", requestUri, failures));
             return new HttpStatusAndFailures(HttpStatus.BAD_REQUEST, failures);
         }
         if (ex instanceof MethodArgumentNotValidException) {
@@ -85,62 +94,69 @@ public class JsonExceptionResolver extends DefaultHandlerExceptionResolver {
             final Stream<Problem> globalFailures = manve.getBindingResult().getGlobalErrors().stream().map(JsonExceptionResolver::objectErrorToProblem);
             final Stream<Problem> fieldFailures = manve.getBindingResult().getFieldErrors().stream().map(JsonExceptionResolver::fieldErrorToProblem);
             final List<Problem> failures = Stream.concat(globalFailures, fieldFailures).collect(Collectors.toList());
+            logger.debug(String.format("Invalid method argument at %s: %s", requestUri, failures));
             return new HttpStatusAndFailures(HttpStatus.BAD_REQUEST, failures);
         }
-        if(hm != null && hm.hasMethodAnnotation(ExceptionMappings.class)){
+        if (hm != null && hm.hasMethodAnnotation(ExceptionMappings.class)) {
             final ExceptionMappings ems = hm.getMethodAnnotation(ExceptionMappings.class);
             for (ExceptionMapping em : ems.value()) {
-                if(em.exception().isAssignableFrom(ex.getClass())){
-                    if(ex instanceof Failure){
+                if (em.exception().isAssignableFrom(ex.getClass())) {
+                    if (ex instanceof Failure) {
                         final Failure failure = (Failure) ex;
-                        return new HttpStatusAndFailures(em.code(), failure.problems);                
+                        logger.debug(String.format("Failure at %s", requestUri), failure);
+                        return new HttpStatusAndFailures(em.code(), failure.problems);
                     }
-                    return new HttpStatusAndFailures(em.code(), Collections.singletonList(
-                        Problem.of(em.type(), em.context(), ex.getMessage(), null)
-                    ));
+                    final Problem problem = Problem.of(em.type(), em.context(), ex.getMessage(), null);
+                    logger.debug(String.format("Failure at %s: %s", requestUri, problem));
+                    return new HttpStatusAndFailures(em.code(), Collections.singletonList(problem));
                 }
-                
+
             }
         }
-        if(hm != null && hm.hasMethodAnnotation(ExceptionMapping.class)){
+        if (hm != null && hm.hasMethodAnnotation(ExceptionMapping.class)) {
             final ExceptionMapping em = hm.getMethodAnnotation(ExceptionMapping.class);
-            if(em.exception().isAssignableFrom(ex.getClass())){
-                if(ex instanceof Failure){
+            if (em.exception().isAssignableFrom(ex.getClass())) {
+                if (ex instanceof Failure) {
                     final Failure failure = (Failure) ex;
-                    return new HttpStatusAndFailures(em.code(), failure.problems);                
+                    logger.debug(String.format("Failure at %s", requestUri), failure);
+                    return new HttpStatusAndFailures(em.code(), failure.problems);
                 }
-                return new HttpStatusAndFailures(em.code(), Collections.singletonList(
-                    Problem.of(em.type(), em.context(), ex.getMessage(), null)
-                ));
+                final Problem problem = Problem.of(em.type(), em.context(), ex.getMessage(), null);
+                logger.debug(String.format("Failure at %s: %s", requestUri, problem));
+                return new HttpStatusAndFailures(em.code(), Collections.singletonList(problem));
             }
         }
         final ResponseStatus responseStatus = AnnotationUtils.findAnnotation(ex.getClass(), ResponseStatus.class);
         if (responseStatus != null) {
             if (ex instanceof Failure) {
                 final Failure failure = (Failure) ex;
+                logger.debug(String.format("Failure at %s", requestUri), failure);
                 return new HttpStatusAndFailures(responseStatus.value(), failure.problems);
             }
             final String reason = responseStatus.reason().isEmpty() ? ex.getMessage() : responseStatus.reason();
-            return new HttpStatusAndFailures(responseStatus.value(), Collections.singletonList(
-                    Problem.of("GENERIC_PROBLEM", null, reason, null)
-            ));
+            final Problem problem = Problem.of("GENERIC_PROBLEM", null, reason, null);
+            logger.debug(String.format("Failure at %s: %s", requestUri, problem));
+            return new HttpStatusAndFailures(responseStatus.value(), Collections.singletonList(problem));
         }
         if (ex instanceof Failure) {
             final Failure failure = (Failure) ex;
+            logger.debug(String.format("Failure at %s", requestUri), failure);
             return new HttpStatusAndFailures(HttpStatus.BAD_REQUEST, failure.problems);
         }
-        if(ex instanceof AccessDeniedException){
-             return new HttpStatusAndFailures(HttpStatus.FORBIDDEN, Collections.singletonList(Problem.of("FORBIDDEN", null, ex.getMessage(), null)));
+        if (ex instanceof AccessDeniedException) {
+            final Problem problem = Problem.of("FORBIDDEN", null, ex.getMessage(), null);
+            logger.debug(String.format("Access denied at %s: %s", requestUri, problem));
+            return new HttpStatusAndFailures(HttpStatus.FORBIDDEN, Collections.singletonList(problem));
         }
         if (null != super.doResolveException(request, new SendErrorToSetStatusHttpServletResponse(response), hm, ex)) {
             if (request.getAttribute("javax.servlet.error.exception") != null) {
-                logger.warn("got an internal error from spring", ex);
+                logger.warn(String.format("got an internal error from spring at %s", requestUri), ex);
             }
             final HttpStatus currentStatus = HttpStatus.valueOf(response.getStatus());
-            logger.warn("got an unexpected error while processing request", ex);
+            logger.warn(String.format("got an unexpected error while processing request at %s", requestUri), ex);
             return new HttpStatusAndFailures(currentStatus, Collections.singletonList(Problem.of("INTERNAL_ERROR", null, ex.getMessage(), null)));
         }
-        logger.error("got an unexpected error while processing request", ex);
+        logger.error(String.format("got an unexpected error while processing request at %s", requestUri), ex);
         return new HttpStatusAndFailures(HttpStatus.INTERNAL_SERVER_ERROR, Collections.singletonList(Problem.of("UNEXPECTED_PROBLEM", null, ex.getMessage(), null)));
     }
 
