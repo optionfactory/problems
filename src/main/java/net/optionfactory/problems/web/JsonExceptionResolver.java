@@ -7,6 +7,7 @@ import com.fasterxml.jackson.databind.exc.UnrecognizedPropertyException;
 import net.optionfactory.problems.Failure;
 import net.optionfactory.problems.Problem;
 import java.io.IOException;
+import java.nio.file.AccessDeniedException;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
@@ -21,13 +22,13 @@ import net.optionfactory.problems.web.ExceptionMapping.ExceptionMappings;
 import org.springframework.core.annotation.AnnotationUtils;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.converter.HttpMessageNotReadableException;
-import org.springframework.security.access.AccessDeniedException;
 import org.springframework.validation.BindException;
 import org.springframework.validation.FieldError;
 import org.springframework.validation.ObjectError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.method.HandlerMethod;
+import org.springframework.web.server.ResponseStatusException;
 import org.springframework.web.servlet.ModelAndView;
 import org.springframework.web.servlet.mvc.support.DefaultHandlerExceptionResolver;
 import org.springframework.web.servlet.view.json.MappingJackson2JsonView;
@@ -96,6 +97,11 @@ public class JsonExceptionResolver extends DefaultHandlerExceptionResolver {
             final List<Problem> failures = Stream.concat(globalFailures, fieldFailures).collect(Collectors.toList());
             logger.debug(String.format("Invalid method argument at %s: %s", requestUri, failures));
             return new HttpStatusAndFailures(HttpStatus.BAD_REQUEST, failures);
+        }
+        if (ex instanceof ResponseStatusException) {
+            final ResponseStatusException rse = (ResponseStatusException)ex;
+            final Problem problem = Problem.of(rse.getStatus().name(), rse.getMessage());
+            return new HttpStatusAndFailures(rse.getStatus(), Collections.singletonList(problem));
         }
         if (hm != null && hm.hasMethodAnnotation(ExceptionMappings.class)) {
             final ExceptionMappings ems = hm.getMethodAnnotation(ExceptionMappings.class);
