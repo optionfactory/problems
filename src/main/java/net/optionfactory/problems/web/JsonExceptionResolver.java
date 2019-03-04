@@ -100,7 +100,7 @@ public class JsonExceptionResolver extends DefaultHandlerExceptionResolver {
         }
         if (ex instanceof ResponseStatusException) {
             final ResponseStatusException rse = (ResponseStatusException)ex;
-            final Problem problem = Problem.of(rse.getStatus().name(), rse.getMessage());
+            final Problem problem = Problem.of(rse.getStatus().name(), rse.getReason());
             return new HttpStatusAndFailures(rse.getStatus(), Collections.singletonList(problem));
         }
         if (hm != null && hm.hasMethodAnnotation(ExceptionMappings.class)) {
