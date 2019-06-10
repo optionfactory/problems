@@ -28,6 +28,7 @@ import org.springframework.validation.ObjectError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.method.HandlerMethod;
+import org.springframework.web.multipart.support.MissingServletRequestPartException;
 import org.springframework.web.server.ResponseStatusException;
 import org.springframework.web.servlet.ModelAndView;
 import org.springframework.web.servlet.mvc.support.DefaultHandlerExceptionResolver;
@@ -98,8 +99,14 @@ public class JsonExceptionResolver extends DefaultHandlerExceptionResolver {
             logger.debug(String.format("Invalid method argument at %s: %s", requestUri, failures));
             return new HttpStatusAndFailures(HttpStatus.BAD_REQUEST, failures);
         }
+        if (ex instanceof MissingServletRequestPartException) {
+            final MissingServletRequestPartException msrpe = (MissingServletRequestPartException) ex;
+            final Problem problem = Problem.of("FIELD_ERROR", msrpe.getRequestPartName(), "Required request part is not present", Problem.NO_DETAILS);
+            logger.debug(String.format("Missing required part %s of multipart request: %s", msrpe.getRequestPartName(), requestUri));
+            return new HttpStatusAndFailures(HttpStatus.BAD_REQUEST, Collections.singletonList(problem));
+        }
         if (ex instanceof ResponseStatusException) {
-            final ResponseStatusException rse = (ResponseStatusException)ex;
+            final ResponseStatusException rse = (ResponseStatusException) ex;
             final Problem problem = Problem.of(rse.getStatus().name(), rse.getReason());
             return new HttpStatusAndFailures(rse.getStatus(), Collections.singletonList(problem));
         }
