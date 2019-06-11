@@ -28,6 +28,7 @@ import org.springframework.validation.ObjectError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.method.HandlerMethod;
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.web.multipart.support.MissingServletRequestPartException;
 import org.springframework.web.server.ResponseStatusException;
 import org.springframework.web.servlet.ModelAndView;
@@ -99,7 +100,17 @@ public class JsonExceptionResolver extends DefaultHandlerExceptionResolver {
             logger.debug(String.format("Invalid method argument at %s: %s", requestUri, failures));
             return new HttpStatusAndFailures(HttpStatus.BAD_REQUEST, failures);
         }
-        if (ex instanceof MissingServletRequestPartException) {
+        if (ex instanceof MethodArgumentTypeMismatchException) { // Handles type errors in path variables (Es. not-numeric string when expecting an int)
+            final MethodArgumentTypeMismatchException matme = (MethodArgumentTypeMismatchException)ex;
+            final String parameterName = matme.getParameter().getParameterName();
+            final String parameterType = matme.getParameter().getParameterType().toGenericString();
+            final Object value = matme.getValue();
+            final String sourceType = value == null ? "null" : value.getClass().toGenericString();
+            final List<Problem> failures = Collections.singletonList(Problem.of("CONVERSION_ERROR", parameterName, String.format("Failed to convert value of type '%s' to '%s'.", sourceType, parameterType), Problem.NO_DETAILS));
+            logger.debug(String.format("Conversion error for argument %s expected type %s found type %s at %s: %s", parameterName, parameterType, sourceType, requestUri, failures));
+            return new HttpStatusAndFailures(HttpStatus.BAD_REQUEST, failures);
+        }
+        if (ex instanceof MissingServletRequestPartException) { // Handles missing multipart request part
             final MissingServletRequestPartException msrpe = (MissingServletRequestPartException) ex;
             final Problem problem = Problem.of("FIELD_ERROR", msrpe.getRequestPartName(), "Required request part is not present", Problem.NO_DETAILS);
             logger.debug(String.format("Missing required part %s of multipart request: %s", msrpe.getRequestPartName(), requestUri));
