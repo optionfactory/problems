@@ -1,5 +1,7 @@
 package net.optionfactory.problems.web;
 
+import com.fasterxml.jackson.core.JsonLocation;
+import com.fasterxml.jackson.core.JsonParseException;
 import com.fasterxml.jackson.databind.JsonMappingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.exc.InvalidFormatException;
@@ -7,6 +9,7 @@ import com.fasterxml.jackson.databind.exc.UnrecognizedPropertyException;
 import net.optionfactory.problems.Failure;
 import net.optionfactory.problems.Problem;
 import java.io.IOException;
+import java.nio.charset.Charset;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
@@ -80,7 +83,27 @@ public class JsonExceptionResolver extends DefaultHandlerExceptionResolver {
                 logger.debug(String.format("Json mapping exception at %s: %s", requestUri, failure));
                 return new HttpStatusAndFailures(HttpStatus.BAD_REQUEST, Arrays.asList(failure));
             }
-            final Problem failure = Problem.of("MESSAGE_NOT_READABLE", null, cause != null ? cause.getMessage() : ex.getMessage(), cause);
+            if (cause instanceof JsonParseException) {
+                final JsonParseException inner = (JsonParseException) cause;
+                final Map<String, Object> metadata = new ConcurrentHashMap<>();
+                metadata.put("location", inner.getLocation());
+                try {
+                    if (inner.getRequestPayload() != null) {
+                        final Object payload = inner.getRequestPayload().getRawPayload();
+                        if (payload instanceof String) {
+                            metadata.put("request", (String) payload);
+                        } else {
+                            metadata.put("request", new String((byte[]) payload, Charset.forName("UTF-8")));
+                        }
+                    }
+                } catch (Exception e) {
+                    // ignore payload if there is a conversion error
+                }
+                final Problem failure = Problem.of("UNPARSEABLE_MESSAGE", Problem.NO_CONTEXT, cause.getMessage(), metadata);
+                logger.debug(String.format("Unparseable message: %s", failure.toString()));
+                return new HttpStatusAndFailures(HttpStatus.BAD_REQUEST, Arrays.asList(failure));
+            }
+            final Problem failure = Problem.of("MESSAGE_NOT_READABLE", Problem.NO_CONTEXT, cause != null ? cause.getMessage() : ex.getMessage(), Problem.NO_DETAILS);
             logger.debug(String.format("Unreadable message at %s: %s", requestUri, failure));
             return new HttpStatusAndFailures(HttpStatus.BAD_REQUEST, Arrays.asList(failure));
         }
@@ -101,7 +124,7 @@ public class JsonExceptionResolver extends DefaultHandlerExceptionResolver {
             return new HttpStatusAndFailures(HttpStatus.BAD_REQUEST, failures);
         }
         if (ex instanceof MethodArgumentTypeMismatchException) { // Handles type errors in path variables (Es. not-numeric string when expecting an int)
-            final MethodArgumentTypeMismatchException matme = (MethodArgumentTypeMismatchException)ex;
+            final MethodArgumentTypeMismatchException matme = (MethodArgumentTypeMismatchException) ex;
             final String parameterName = matme.getParameter().getParameterName();
             final String parameterType = matme.getParameter().getParameterType().toGenericString();
             final Object value = matme.getValue();
