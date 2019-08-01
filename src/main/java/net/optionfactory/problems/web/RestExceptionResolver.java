@@ -98,18 +98,6 @@ public class RestExceptionResolver extends DefaultHandlerExceptionResolver {
                 final JsonParseException inner = (JsonParseException) cause;
                 final Map<String, Object> metadata = new ConcurrentHashMap<>();
                 metadata.put("location", inner.getLocation());
-                try {
-                    if (inner.getRequestPayload() != null) {
-                        final Object payload = inner.getRequestPayload().getRawPayload();
-                        if (payload instanceof String) {
-                            metadata.put("request", (String) payload);
-                        } else {
-                            metadata.put("request", new String((byte[]) payload, Charset.forName("UTF-8")));
-                        }
-                    }
-                } catch (Exception e) {
-                    // ignore payload if there is a conversion error
-                }
                 final Problem failure = Problem.of("UNPARSEABLE_MESSAGE", Problem.NO_CONTEXT, cause.getMessage(), metadata);
                 logger.debug(String.format("Unparseable message: %s", failure.toString()));
                 return new HttpStatusAndFailures(HttpStatus.BAD_REQUEST, Arrays.asList(failure));
