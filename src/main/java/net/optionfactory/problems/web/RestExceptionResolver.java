@@ -3,7 +3,6 @@ package net.optionfactory.problems.web;
 import com.fasterxml.jackson.core.JsonLocation;
 import com.fasterxml.jackson.core.JsonParseException;
 import com.fasterxml.jackson.databind.JsonMappingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.exc.InvalidFormatException;
 import com.fasterxml.jackson.databind.exc.UnrecognizedPropertyException;
 import net.optionfactory.problems.Failure;
@@ -12,34 +11,43 @@ import java.io.IOException;
 import java.nio.charset.Charset;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.Supplier;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 import javax.servlet.http.HttpServletResponseWrapper;
 import net.optionfactory.problems.web.ExceptionMapping.ExceptionMappings;
+import org.springframework.core.annotation.AnnotatedElementUtils;
 import org.springframework.core.annotation.AnnotationUtils;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.validation.BindException;
 import org.springframework.validation.FieldError;
 import org.springframework.validation.ObjectError;
+import org.springframework.web.HttpMediaTypeNotAcceptableException;
+import org.springframework.web.accept.ContentNegotiationManager;
 import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.web.bind.annotation.ResponseBody;
 import org.springframework.web.bind.annotation.ResponseStatus;
+import org.springframework.web.context.request.ServletWebRequest;
 import org.springframework.web.method.HandlerMethod;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.web.multipart.support.MissingServletRequestPartException;
 import org.springframework.web.server.ResponseStatusException;
 import org.springframework.web.servlet.ModelAndView;
+import org.springframework.web.servlet.View;
 import org.springframework.web.servlet.mvc.support.DefaultHandlerExceptionResolver;
-import org.springframework.web.servlet.view.json.MappingJackson2JsonView;
 
 /**
- * A custom exception resolver resolving Spring and Jackson2 exceptions with a
+ * A custom exception resolver resolving Spring and Jackson2 exceptions thrown
+ * from an HandlerMethod annotated with {@link @ResponseBody} with a
  * MappingJackson2JsonView. Sample serialized form of the response is:  <code>
  * [
  *   {"type": "", "context": "fieldName", "reason": a field validation error", "details": null},
@@ -47,12 +55,15 @@ import org.springframework.web.servlet.view.json.MappingJackson2JsonView;
  * ]
  * </code>
  */
-public class JsonExceptionResolver extends DefaultHandlerExceptionResolver {
+public class RestExceptionResolver extends DefaultHandlerExceptionResolver {
 
-    private final ObjectMapper objectMapper;
+    private final Map<HandlerMethod, Boolean> methodToIsRest = new ConcurrentHashMap<>();
+    private final ContentNegotiationManager cn;
+    private final LinkedHashMap<MediaType, Supplier<View>> mediaTypeToViewFactory;
 
-    public JsonExceptionResolver(ObjectMapper objectMapper, int order) {
-        this.objectMapper = objectMapper;
+    public RestExceptionResolver(ContentNegotiationManager cn, LinkedHashMap<MediaType, Supplier<View>> mediaTypeToViewFactory, int order) {
+        this.cn = cn;
+        this.mediaTypeToViewFactory = mediaTypeToViewFactory;
         this.setOrder(order);
     }
 
@@ -109,16 +120,16 @@ public class JsonExceptionResolver extends DefaultHandlerExceptionResolver {
         }
         if (ex instanceof BindException) {
             final BindException be = (BindException) ex;
-            final Stream<Problem> globalFailures = be.getGlobalErrors().stream().map(JsonExceptionResolver::objectErrorToProblem);
-            final Stream<Problem> fieldFailures = be.getFieldErrors().stream().map(JsonExceptionResolver::fieldErrorToProblem);
+            final Stream<Problem> globalFailures = be.getGlobalErrors().stream().map(RestExceptionResolver::objectErrorToProblem);
+            final Stream<Problem> fieldFailures = be.getFieldErrors().stream().map(RestExceptionResolver::fieldErrorToProblem);
             final List<Problem> failures = Stream.concat(globalFailures, fieldFailures).collect(Collectors.toList());
             logger.debug(String.format("Binding failure at %s: %s", requestUri, failures));
             return new HttpStatusAndFailures(HttpStatus.BAD_REQUEST, failures);
         }
         if (ex instanceof MethodArgumentNotValidException) {
             final MethodArgumentNotValidException manve = (MethodArgumentNotValidException) ex;
-            final Stream<Problem> globalFailures = manve.getBindingResult().getGlobalErrors().stream().map(JsonExceptionResolver::objectErrorToProblem);
-            final Stream<Problem> fieldFailures = manve.getBindingResult().getFieldErrors().stream().map(JsonExceptionResolver::fieldErrorToProblem);
+            final Stream<Problem> globalFailures = manve.getBindingResult().getGlobalErrors().stream().map(RestExceptionResolver::objectErrorToProblem);
+            final Stream<Problem> fieldFailures = manve.getBindingResult().getFieldErrors().stream().map(RestExceptionResolver::fieldErrorToProblem);
             final List<Problem> failures = Stream.concat(globalFailures, fieldFailures).collect(Collectors.toList());
             logger.debug(String.format("Invalid method argument at %s: %s", requestUri, failures));
             return new HttpStatusAndFailures(HttpStatus.BAD_REQUEST, failures);
@@ -208,15 +219,36 @@ public class JsonExceptionResolver extends DefaultHandlerExceptionResolver {
     }
 
     @Override
+    protected boolean shouldApplyTo(HttpServletRequest request, Object handler) {
+        return super.shouldApplyTo(request, handler) && methodToIsRest.computeIfAbsent((HandlerMethod) handler, m -> {
+            return m.hasMethodAnnotation(ResponseBody.class) || AnnotatedElementUtils.hasAnnotation(m.getBeanType(), ResponseBody.class);
+        });
+    }
+
+    @Override
     protected ModelAndView doResolveException(HttpServletRequest request, HttpServletResponse response, Object handler, Exception ex) {
         final HandlerMethod hm = (HandlerMethod) handler;
-        final MappingJackson2JsonView view = new MappingJackson2JsonView();
-        view.setExtractValueFromSingleKeyModel(true);
-        view.setObjectMapper(objectMapper);
-        view.setContentType("application/json;charset=UTF-8");
         final HttpStatusAndFailures statusAndErrors = toStatusAndErrors(request, response, hm, ex);
         response.setStatus(statusAndErrors.status.value());
-        return new ModelAndView(view, "errors", statusAndErrors.failures);
+
+        try {
+            final List<MediaType> mts = cn.resolveMediaTypes(new ServletWebRequest(request));
+
+            for (MediaType mt : mts) {
+                for (Map.Entry<MediaType, Supplier<View>> mediaTypeAndViewFactory : mediaTypeToViewFactory.entrySet()) {
+                    final MediaType mediaType = mediaTypeAndViewFactory.getKey();
+                    final Supplier<View> viewFactory = mediaTypeAndViewFactory.getValue();
+                    if (mt.isCompatibleWith(mediaType)) {
+                        return new ModelAndView(viewFactory.get(), "errors", statusAndErrors.failures);
+                    }
+                }
+            }
+            final Supplier<View> firstSupplier = mediaTypeToViewFactory.values().iterator().next();
+            return new ModelAndView(firstSupplier.get(), "errors", statusAndErrors.failures);
+        } catch (HttpMediaTypeNotAcceptableException ex1) {
+            final Supplier<View> firstSupplier = mediaTypeToViewFactory.values().iterator().next();
+            return new ModelAndView(firstSupplier.get(), "errors", statusAndErrors.failures);
+        }
     }
 
     public static class HttpStatusAndFailures {
