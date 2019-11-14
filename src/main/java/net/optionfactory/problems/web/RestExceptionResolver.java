@@ -1,6 +1,5 @@
 package net.optionfactory.problems.web;
 
-import com.fasterxml.jackson.core.JsonLocation;
 import com.fasterxml.jackson.core.JsonParseException;
 import com.fasterxml.jackson.databind.JsonMappingException;
 import com.fasterxml.jackson.databind.exc.InvalidFormatException;
@@ -8,7 +7,6 @@ import com.fasterxml.jackson.databind.exc.UnrecognizedPropertyException;
 import net.optionfactory.problems.Failure;
 import net.optionfactory.problems.Problem;
 import java.io.IOException;
-import java.nio.charset.Charset;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.LinkedHashMap;
@@ -21,7 +19,6 @@ import java.util.stream.Stream;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 import javax.servlet.http.HttpServletResponseWrapper;
-import net.optionfactory.problems.web.ExceptionMapping.ExceptionMappings;
 import org.springframework.core.annotation.AnnotatedElementUtils;
 import org.springframework.core.annotation.AnnotationUtils;
 import org.springframework.http.HttpStatus;
@@ -143,35 +140,6 @@ public class RestExceptionResolver extends DefaultHandlerExceptionResolver {
             final Problem problem = Problem.of(rse.getStatus().name(), rse.getReason());
             return new HttpStatusAndFailures(rse.getStatus(), Collections.singletonList(problem));
         }
-        if (hm != null && hm.hasMethodAnnotation(ExceptionMappings.class)) {
-            final ExceptionMappings ems = hm.getMethodAnnotation(ExceptionMappings.class);
-            for (ExceptionMapping em : ems.value()) {
-                if (em.exception().isAssignableFrom(ex.getClass())) {
-                    if (ex instanceof Failure) {
-                        final Failure failure = (Failure) ex;
-                        logger.debug(String.format("Failure at %s", requestUri), failure);
-                        return new HttpStatusAndFailures(em.code(), failure.problems);
-                    }
-                    final Problem problem = Problem.of(em.type(), em.context(), ex.getMessage(), null);
-                    logger.debug(String.format("Failure at %s: %s", requestUri, problem));
-                    return new HttpStatusAndFailures(em.code(), Collections.singletonList(problem));
-                }
-
-            }
-        }
-        if (hm != null && hm.hasMethodAnnotation(ExceptionMapping.class)) {
-            final ExceptionMapping em = hm.getMethodAnnotation(ExceptionMapping.class);
-            if (em.exception().isAssignableFrom(ex.getClass())) {
-                if (ex instanceof Failure) {
-                    final Failure failure = (Failure) ex;
-                    logger.debug(String.format("Failure at %s", requestUri), failure);
-                    return new HttpStatusAndFailures(em.code(), failure.problems);
-                }
-                final Problem problem = Problem.of(em.type(), em.context(), ex.getMessage(), null);
-                logger.debug(String.format("Failure at %s: %s", requestUri, problem));
-                return new HttpStatusAndFailures(em.code(), Collections.singletonList(problem));
-            }
-        }
         final ResponseStatus responseStatus = AnnotationUtils.findAnnotation(ex.getClass(), ResponseStatus.class);
         if (responseStatus != null) {
             if (ex instanceof Failure) {
@@ -208,9 +176,9 @@ public class RestExceptionResolver extends DefaultHandlerExceptionResolver {
 
     @Override
     protected boolean shouldApplyTo(HttpServletRequest request, Object handler) {
-        return super.shouldApplyTo(request, handler) && methodToIsRest.computeIfAbsent((HandlerMethod) handler, m -> {
+        return super.shouldApplyTo(request, handler) && (handler == null || methodToIsRest.computeIfAbsent((HandlerMethod) handler, m -> {
             return m.hasMethodAnnotation(ResponseBody.class) || AnnotatedElementUtils.hasAnnotation(m.getBeanType(), ResponseBody.class);
-        });
+        }));
     }
 
     @Override
