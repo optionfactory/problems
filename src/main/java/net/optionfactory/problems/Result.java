@@ -11,7 +11,6 @@ import org.springframework.util.Assert;
  * Result of a computation.Can be _either_ a value or an error.
  *
  * @author rferranti
- * @param <V>
  */
 public class Result<V> {
 
