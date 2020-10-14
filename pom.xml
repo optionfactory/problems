@@ -39,7 +39,7 @@
         </repository>
     </distributionManagement>    
     <properties>
-        <spring.version>5.1.7.RELEASE</spring.version>
+        <spring.version>5.2.7.RELEASE</spring.version>
         <spring.security.version>5.1.5.RELEASE</spring.security.version>
         <jackson.version>2.10.0</jackson.version>
         <maven.compiler.source>1.8</maven.compiler.source>
