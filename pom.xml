@@ -40,7 +40,7 @@
     </distributionManagement>    
     <properties>
         <spring.version>5.3.15</spring.version>
-        <spring.security.version>5.6.1</spring.security.version>
+        <spring.security.version>5.6.4</spring.security.version>
         <jackson.version>2.13.1</jackson.version>
         <maven.compiler.source>1.8</maven.compiler.source>
         <maven.compiler.target>1.8</maven.compiler.target>
