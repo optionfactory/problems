@@ -5,7 +5,7 @@
     <artifactId>problems</artifactId>
     <name>${project.groupId}:${project.artifactId}</name>
     <packaging>jar</packaging>
-    <version>2.1-SNAPSHOT</version>
+    <version>2.1</version>
     <description>A library to model and collect failures and map them as REST APIs responses</description>
     <url>https://github.com/optionfactory/problems</url>
     <licenses>
@@ -90,12 +90,12 @@
             </activation>
             <distributionManagement>
                 <snapshotRepository>
-                    <id>nexus</id>
-                    <url>${env.NEXUS_SNAPSHOTS_URL}</url>
+                    <id>ossrh</id>
+                    <url>https://oss.sonatype.org/content/repositories/snapshots</url>
                 </snapshotRepository>
                 <repository>
-                    <id>nexus</id>
-                    <url>${env.NEXUS_RELEASES_URL}</url>
+                    <id>ossrh</id>
+                    <url>https://oss.sonatype.org/service/local/staging/deploy/maven2/</url>
                 </repository>
             </distributionManagement>
         </profile>
@@ -106,7 +106,7 @@
                     <plugin>
                         <groupId>org.apache.maven.plugins</groupId>
                         <artifactId>maven-gpg-plugin</artifactId>
-                        <version>1.5</version>
+                        <version>3.1.0</version>
                         <executions>
                             <execution>
                                 <id>sign-artifacts</id>
